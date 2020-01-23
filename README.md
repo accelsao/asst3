@@ -431,5 +431,13 @@ Please submit your work using Gradescope.
 
 Our grading scripts will rerun the checker code allowing us to verify your score matches what you submitted in the `writeup.pdf`.  We might also try to run your code on other datasets to further examine its correctness.
 
-
-
+# Write-Up
+## Parallel Prefix-Sum
+### scan
+At first, I entry `int num = roundN; int block = (num + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;`, however it is too slow, so try set `num = roundN / two_dplus1` to entry necessary number of threads is better.
+![](https://i.imgur.com/FbOcjaN.png)
+### find_repeats
+We can get array by turning the 01 array to range array, then index it in order.
+![](https://i.imgur.com/PwEKMtc.png)
+## A Simple Circle Renderer
+Not Yet Done !!

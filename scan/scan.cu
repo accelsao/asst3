@@ -14,6 +14,67 @@
 
 #define THREADS_PER_BLOCK 256
 
+using namespace std;
+
+__global__ void prescan_upsweep(int* result, int two_d, int two_dplus1, int N)
+{
+	int index = blockIdx.x * blockDim.x + threadIdx.x;
+	if(index < N / two_dplus1){
+        int j = index * two_dplus1;
+		result[j + two_dplus1 - 1] += result[j + two_d - 1];
+	}
+}
+
+__global__ void prescan_downsweep(int* result, int two_d, int two_dplus1, int N)
+{
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+	if(index < N / two_dplus1){
+        int j = index * two_dplus1;
+
+        int t = result[j + two_d - 1];
+        result[j + two_d - 1] = result[j + two_dplus1 - 1];
+        result[j + two_dplus1 - 1] += t;
+	}
+}
+
+__global__ void prescan_assignment(int* result, int N)
+{
+    result[N - 1] = 0;
+}
+
+
+__global__ void set_repeat(int* input, int N, int* output)
+{
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if(index + 1 < N){
+        if(input[index] == input[index + 1]){
+            output[index] = 1;
+        }
+        else{
+            output[index] = 0;
+        }
+    }
+}
+
+__global__ void reassign_array(int* input, int N, int* output)
+{
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if(index + 1 < N){
+        if(input[index] != input[index + 1]){
+            output[input[index]] = index;
+        }
+    }
+}
+
+__global__ void device_copy(int* input, int N, int* output)
+{
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if(index < N){
+        output[index] = input[index];
+    }
+}
+
+
 
 // helper function to round an integer up to the next power of 2
 static inline int nextPow2(int n) {
@@ -45,6 +106,7 @@ static inline int nextPow2(int n) {
 void exclusive_scan(int* input, int N, int* result)
 {
 
+
     // CS149 TODO:
     //
     // Implement your exclusive scan implementation here.  Keep input
@@ -54,7 +116,28 @@ void exclusive_scan(int* input, int N, int* result)
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
 
+	int roundN = nextPow2(N);
 
+	for(int two_d = 1; two_d < roundN / 2; two_d <<=1){
+		int two_dplus1 = two_d + two_d;
+		int num = roundN / two_dplus1 + 1;
+		//int num = roundN;
+		int blocks = (num + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+		prescan_upsweep<<<blocks, THREADS_PER_BLOCK>>>(result, two_d, two_dplus1, roundN);
+		cudaDeviceSynchronize();
+	}
+
+	prescan_assignment<<<1, 1>>>(result, roundN);
+    cudaDeviceSynchronize();
+
+	for (int two_d = roundN / 2; two_d >= 1; two_d /= 2) {
+        int two_dplus1 = two_d + two_d;
+        int num = roundN / two_dplus1 + 1;
+        //int num = roundN;
+		int blocks = (num + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+		prescan_downsweep<<<blocks, THREADS_PER_BLOCK>>>(result, two_d, two_dplus1, roundN);
+		cudaDeviceSynchronize();
+    }
 }
 
 
@@ -67,9 +150,10 @@ void exclusive_scan(int* input, int N, int* result)
 // above. Students should not modify it.
 double cudaScan(int* inarray, int* end, int* resultarray)
 {
+
     int* device_result;
     int* device_input;
-    int N = end - inarray;  
+    int N = end - inarray;
 
     // This code rounds the arrays provided to exclusive_scan up
     // to a power of 2, but elements after the end of the original
@@ -81,7 +165,7 @@ double cudaScan(int* inarray, int* end, int* resultarray)
     // the simplicity of a power of two only solution.
 
     int rounded_length = nextPow2(end - inarray);
-    
+
     cudaMalloc((void **)&device_result, sizeof(int) * rounded_length);
     cudaMalloc((void **)&device_input, sizeof(int) * rounded_length);
 
@@ -93,18 +177,21 @@ double cudaScan(int* inarray, int* end, int* resultarray)
     cudaMemcpy(device_input, inarray, (end - inarray) * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(device_result, inarray, (end - inarray) * sizeof(int), cudaMemcpyHostToDevice);
 
+
     double startTime = CycleTimer::currentSeconds();
 
     exclusive_scan(device_input, N, device_result);
 
+
+
     // Wait for completion
     cudaDeviceSynchronize();
     double endTime = CycleTimer::currentSeconds();
-       
+
     cudaMemcpy(resultarray, device_result, (end - inarray) * sizeof(int), cudaMemcpyDeviceToHost);
 
     double overallDuration = endTime - startTime;
-    return overallDuration; 
+    return overallDuration;
 }
 
 
@@ -121,7 +208,7 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
     int length = end - inarray;
     thrust::device_ptr<int> d_input = thrust::device_malloc<int>(length);
     thrust::device_ptr<int> d_output = thrust::device_malloc<int>(length);
-    
+
     cudaMemcpy(d_input.get(), inarray, length * sizeof(int), cudaMemcpyHostToDevice);
 
     double startTime = CycleTimer::currentSeconds();
@@ -130,14 +217,14 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
 
     cudaDeviceSynchronize();
     double endTime = CycleTimer::currentSeconds();
-   
+
     cudaMemcpy(resultarray, d_output.get(), length * sizeof(int), cudaMemcpyDeviceToHost);
 
     thrust::device_free(d_input);
     thrust::device_free(d_output);
 
     double overallDuration = endTime - startTime;
-    return overallDuration; 
+    return overallDuration;
 }
 
 
@@ -154,14 +241,52 @@ int find_repeats(int* device_input, int length, int* device_output) {
     // Implement this function. You will probably want to
     // make use of one or more calls to exclusive_scan(), as well as
     // additional CUDA kernel launches.
-    //    
+    //
     // Note: As in the scan code, the calling code ensures that
     // allocated arrays are a power of 2 in size, so you can use your
     // exclusive_scan function with them. However, your implementation
     // must ensure that the results of find_repeats are correct given
     // the actual array length.
 
-    return 0; 
+    int blocks = (length + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    set_repeat<<<blocks, THREADS_PER_BLOCK>>>(device_input, length, device_output);
+    cudaDeviceSynchronize();
+
+    int num_repeats;
+    // cudaMemcpy(device_output, device_input, length * sizeof(int), cudaMemcpyDeviceToHost);
+
+//    int tmp[length];
+//    cudaMemcpy(tmp, device_output, length * sizeof(int), cudaMemcpyDeviceToHost);
+//    for(int i=0;i<length;i++){
+//        cout<<tmp[i]<<" ";
+//    }
+//    cout<<"\n";
+
+    device_copy<<<blocks, THREADS_PER_BLOCK>>>(device_output, length, device_input);
+//
+//    cudaMemcpy(tmp, device_input, length * sizeof(int), cudaMemcpyDeviceToHost);
+//    for(int i=0;i<length;i++){
+//        cout<<tmp[i]<<" ";
+//    }
+//    cout<<"\n";
+
+    exclusive_scan(device_output, length, device_input);
+
+//    cudaMemcpy(tmp, device_output, length * sizeof(int), cudaMemcpyDeviceToHost);
+//    for(int i=0;i<length;i++){
+//        cout<<tmp[i]<<" ";
+//    }
+//    cout<<"\n";
+
+    // then we get sequece from 0 to num
+    // e.g. [0, 1, 1, 2, 3, 3, 4]
+    // then we can get the array by access the corresponding index when arr[index] != arr[index+1]
+
+	reassign_array<<<blocks, THREADS_PER_BLOCK>>>(device_input, length, device_output);
+
+
+	cudaMemcpy(&num_repeats, device_input + length - 1, sizeof(int), cudaMemcpyDeviceToHost);
+	return num_repeats;
 }
 
 
@@ -174,14 +299,14 @@ double cudaFindRepeats(int *input, int length, int *output, int *output_length) 
     int *device_input;
     int *device_output;
     int rounded_length = nextPow2(length);
-    
+
     cudaMalloc((void **)&device_input, rounded_length * sizeof(int));
     cudaMalloc((void **)&device_output, rounded_length * sizeof(int));
     cudaMemcpy(device_input, input, length * sizeof(int), cudaMemcpyHostToDevice);
 
     cudaDeviceSynchronize();
     double startTime = CycleTimer::currentSeconds();
-    
+
     int result = find_repeats(device_input, length, device_output);
 
     cudaDeviceSynchronize();
@@ -194,7 +319,7 @@ double cudaFindRepeats(int *input, int length, int *output, int *output_length) 
     cudaFree(device_input);
     cudaFree(device_output);
 
-    float duration = endTime - startTime; 
+    float duration = endTime - startTime;
     return duration;
 }
 
@@ -218,5 +343,5 @@ void printCudaInfo()
                static_cast<float>(deviceProps.totalGlobalMem) / (1024 * 1024));
         printf("   CUDA Cap:   %d.%d\n", deviceProps.major, deviceProps.minor);
     }
-    printf("---------------------------------------------------------\n"); 
+    printf("---------------------------------------------------------\n");
 }
