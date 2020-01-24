@@ -56,4 +56,3 @@ circleInBox(
         return 0;
     }
 }
-

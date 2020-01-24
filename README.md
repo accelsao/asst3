@@ -440,4 +440,7 @@ At first, I entry `int num = roundN; int block = (num + THREADS_PER_BLOCK - 1) /
 We can get array by turning the 01 array to range array, then index it in order.
 ![](https://i.imgur.com/PwEKMtc.png)
 ## A Simple Circle Renderer
-Not Yet Done !!
+score: 70/72
+ref: https://github.com/seahyinghang8/asst4/blob/master/render/cudaRenderer.cu
+merge `checkInBoxconservative` and `checkInBox` at once to improve speed.
+![](https://i.imgur.com/Tk9h1hj.png)
